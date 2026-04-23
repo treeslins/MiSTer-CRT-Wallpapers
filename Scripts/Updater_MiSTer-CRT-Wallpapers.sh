@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Copyright 2020 - RetroDriven and Ranny Snice
+# Copyright 2020 - Treeslins and Ranny Snice
 # You can download the latest version of this script from:
 # https://github.com/RetroDriven/MiSTer-CRT-Wallpapers
 # v2.0 - Switched to GitHub DB-based download
@@ -100,12 +100,12 @@ esac
 
 #========= FUNCTIONS =========
 
-# RetroDriven Updater Banner Function
-RetroDriven_Banner(){
+# Treeslins Updater Banner Function
+Treeslins_Banner(){
 echo
 echo " ------------------------------------------------------------"
 echo "|                   MiSTer CRT Wallpapers v2.0               |"
-echo "|                   powered by RetroDriven                   |"
+echo "|                   powered by Treeslins                      |"
 echo " ------------------------------------------------------------"
 sleep 3  # Pause 3 seconds for visibility
 }
@@ -171,10 +171,15 @@ Download_Wallpapers(){
     echo "Database base URL: $BASE_FILES_URL"
     
     # Step 4: Extract file paths from "files" object keys
-    # JSON format: {"files": {"Wallpapers/file.jpg": {"hash":"...", "size":..., "tags":[...]}}, ...}
-    # We need to extract the keys of the "files" object
-    grep -oP '"Wallpapers/[^"]*\.(jpg|jpeg|png)"' "${TMP_DIR}/db.json" | \
-    tr -d '"' > "${TMP_DIR}/filelist.txt"
+    # JSON format: {"files": {"Wallpapers/file.jpg": {"hash":"...", "size":...}}, ...}
+    # db.json is typically a single line, so we use sed to split entries first
+    # Then grep for "Wallpapers/" keys with trailing colon (indicates JSON key)
+    # This approach is busybox-compatible (no Perl regex -P needed)
+    
+    # Split single-line JSON into multiple lines at each file entry boundary
+    sed 's/}, "/}\n"/g' "${TMP_DIR}/db.json" | \
+    grep -o '"Wallpapers/[^"]*":' | \
+    tr -d '"' | tr -d ':' > "${TMP_DIR}/filelist.txt"
     
     if [ ! -s "${TMP_DIR}/filelist.txt" ]; then
         echo "Error: Could not extract file list from db.json!"
@@ -269,10 +274,10 @@ echo
 #========= MAIN CODE =========
 
 # Print banner
-RetroDriven_Banner
+Treeslins_Banner
 
 # Create logs directory
-LOGS_PATH="/media/fat/Scripts/.RetroDriven/Logs"
+LOGS_PATH="/media/fat/Scripts/.Treeslins/Logs"
 mkdir -p "$LOGS_PATH"
 
 # Download wallpapers
