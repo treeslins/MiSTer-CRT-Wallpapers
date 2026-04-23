@@ -13,21 +13,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Copyright 2026 - RetroDriven and Ranny Snice
+# Copyright 2020 - RetroDriven and Ranny Snice
 # You can download the latest version of this script from:
-# https://github.com/treeslins/MiSTer-CRT-Wallpapers
-# v2.0 - Initial MiSTer-CRT-Wallpapers Script
+# https://github.com/RetroDriven/MiSTer-CRT-Wallpapers
+# v2.0 - Switched to GitHub DB-based download
 
 #=========   URL OPTIONS   =========
 
 # Main URL (GitHub)
 MAIN_URL="https://github.com"
 
-# Wallpaper Database URL (db.json contains all wallpaper file list)
+# Wallpaper Database URL (db.json.zip contains file list with hash, size, tags)
 DB_URL="https://raw.githubusercontent.com/Ranny-Snice/Ranny-Snice-Wallpapers/db/db.json.zip"
-
-# Wallpaper Files Base URL
-WALLPAPERS_BASE_URL="https://raw.githubusercontent.com/Ranny-Snice/Ranny-Snice-Wallpapers/main/Wallpapers"
 
 #=========   USER OPTIONS   =========
 
@@ -103,12 +100,12 @@ esac
 
 #========= FUNCTIONS =========
 
-# Treeslins Banner Function
-Treeslins_Banner(){
+# RetroDriven Updater Banner Function
+RetroDriven_Banner(){
 echo
 echo " ------------------------------------------------------------"
 echo "|                   MiSTer CRT Wallpapers v2.0               |"
-echo "|                   powered by Treeslins                   |"
+echo "|                   powered by RetroDriven                   |"
 echo " ------------------------------------------------------------"
 sleep 3  # Pause 3 seconds for visibility
 }
@@ -137,30 +134,55 @@ Download_Wallpapers(){
     # Create temporary directory
     TMP_DIR=$(mktemp -d)
     
-    # Download db.json.zip
+    # Step 1: Download db.json.zip
     echo
     echo "Downloading wallpaper database..."
     echo
     curl ${CURL_RETRY} ${SSL_SECURITY_OPTION} -L -o "${TMP_DIR}/db.json.zip" "$DB_URL"
     
-    if [ ! -f "${TMP_DIR}/db.json.zip" ]; then
+    if [ ! -f "${TMP_DIR}/db.json.zip" ] || [ ! -s "${TMP_DIR}/db.json.zip" ]; then
         echo "Failed to download database!"
         rm -rf "$TMP_DIR"
         exit 1
     fi
     
-    # Extract db.json
-    unzip -q "${TMP_DIR}/db.json.zip" -d "$TMP_DIR"
+    # Step 2: Extract db.json from zip
+    echo "Extracting database..."
+    unzip -q "${TMP_DIR}/db.json.zip" -d "$TMP_DIR" 2>/dev/null
     
-    # Extract file list from db.json (assumes format: {"files": [{"name": "xxx.jpg", "url": "...", ...}, ...]})
-    # Use grep to extract filenames, compatible with systems without jq
-    echo "Parsing wallpaper list..."
+    if [ ! -f "${TMP_DIR}/db.json" ]; then
+        echo "Error: db.json not found in zip archive!"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
     
-    # Extract all filenames (assumes JSON has "name": "filename.jpg" format)
-    grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*\.\(jpg\|png\)"' "${TMP_DIR}/db.json" | \
-    sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' > "${TMP_DIR}/filelist.txt"
+    # Step 3: Parse base_files_url from db.json
+    # JSON format: {"base_files_url": "https://raw.githubusercontent.com/.../<commit_hash>/", ...}
+    # This URL is the base for all file downloads
+    BASE_FILES_URL=$(grep -o '"base_files_url"[[:space:]]*:[[:space:]]*"[^"]*"' "${TMP_DIR}/db.json" | \
+        sed 's/.*"base_files_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
     
-    # Blacklist filtering
+    if [ -z "$BASE_FILES_URL" ]; then
+        echo "Error: Could not find base_files_url in db.json!"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+    
+    echo "Database base URL: $BASE_FILES_URL"
+    
+    # Step 4: Extract file paths from "files" object keys
+    # JSON format: {"files": {"Wallpapers/file.jpg": {"hash":"...", "size":..., "tags":[...]}}, ...}
+    # We need to extract the keys of the "files" object
+    grep -oP '"Wallpapers/[^"]*\.(jpg|jpeg|png)"' "${TMP_DIR}/db.json" | \
+    tr -d '"' > "${TMP_DIR}/filelist.txt"
+    
+    if [ ! -s "${TMP_DIR}/filelist.txt" ]; then
+        echo "Error: Could not extract file list from db.json!"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+    
+    # Step 5: Blacklist filtering
     if [ "$BLACKLIST" != "" ]; then
         echo "Applying blacklist filter..."
         BLACKLIST_ARRAY=($BLACKLIST)
@@ -175,38 +197,61 @@ Download_Wallpapers(){
     echo "Found $TOTAL_FILES wallpaper files"
     echo
     
-    # Download wallpaper files
+    # Step 6: Download wallpaper files
     echo "Starting wallpaper download..."
     echo
     
     CURRENT=0
-    while IFS= read -r filename; do
+    SUCCESS=0
+    FAILED=0
+    SKIPPED=0
+    while IFS= read -r filepath; do
         CURRENT=$((CURRENT + 1))
         
-        # Build download URL
-        FILE_URL="${WALLPAPERS_BASE_URL}/${filename}"
+        # Extract filename from path (remove "Wallpapers/" prefix)
+        filename=$(basename "$filepath")
+        
+        # Build download URL: base_files_url + "/" + filepath
+        FILE_URL="${BASE_FILES_URL}/${filepath}"
         
         # Check if file already exists and is complete (simple check: file size > 0)
         if [ -f "$filename" ] && [ -s "$filename" ]; then
-            echo "[$CURRENT/$TOTAL_FILES] Already exists: $filename"
+            echo "[$CURRENT/$TOTAL_FILES] Skipped: $filename"
+            SKIPPED=$((SKIPPED + 1))
             continue
         fi
         
-        echo "[$CURRENT/$TOTAL_FILES] Downloading: $filename"
+        echo -n "[$CURRENT/$TOTAL_FILES] Downloading: $filename ... "
         
         # Download file
-        curl ${CURL_RETRY} ${SSL_SECURITY_OPTION} -L -o "$filename" "$FILE_URL" 2>/dev/null
+        HTTP_CODE=$(curl ${CURL_RETRY} ${SSL_SECURITY_OPTION} -L -o "$filename" -w "%{http_code}" "$FILE_URL" 2>/dev/null)
         
-        # Record to log
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - $filename" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
+        if [ "$HTTP_CODE" == "200" ] && [ -f "$filename" ] && [ -s "$filename" ]; then
+            echo "OK"
+            SUCCESS=$((SUCCESS + 1))
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - $filename" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
+        else
+            echo "FAILED (HTTP $HTTP_CODE)"
+            FAILED=$((FAILED + 1))
+            rm -f "$filename" 2>/dev/null
+        fi
         
     done < "${TMP_DIR}/filelist.txt"
     
     # Clean up temporary files
     rm -rf "$TMP_DIR"
     
+    # Summary
     echo
-    echo "Wallpaper download complete!"
+    echo "================================================================"
+    echo "  Download complete!"
+    echo "  Total: $TOTAL_FILES | Downloaded: $SUCCESS | Skipped: $SKIPPED | Failed: $FAILED"
+    echo "================================================================"
+    
+    if [ "$FAILED" -gt 0 ]; then
+        echo "Warning: $FAILED files failed to download. Check your internet connection and try again."
+    fi
+    
 	sleep 1
     clear 		
 }
@@ -224,14 +269,14 @@ echo
 #========= MAIN CODE =========
 
 # Print banner
-Treeslins_Banner
+RetroDriven_Banner
 
 # Create logs directory
-LOGS_PATH="/media/fat/Scripts/.Treeslins/Logs"
+LOGS_PATH="/media/fat/Scripts/.RetroDriven/Logs"
 mkdir -p "$LOGS_PATH"
 
 # Download wallpapers
-	Download_Wallpapers
+Download_Wallpapers
 
 echo
 
@@ -240,5 +285,6 @@ Footer
 echo "Wallpapers designed and provided by: Ranny Snice"
 echo
 echo "Wallpaper collection location: /media/fat/wallpapers"
-
+echo
+echo "Script modified by: trees"
 echo
