@@ -14,288 +14,121 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Copyright 2020 - Treeslins and Ranny Snice
+
 # You can download the latest version of this script from:
-# https://github.com/RetroDriven/MiSTer-CRT-Wallpapers
-# v2.0 - Switched to GitHub DB-based download
+# https://github.com/Treeslins/MiSTer-CRT-Wallpapers
+
+# v1.0 - Initial MiSTer-CRT-Wallpapers Script
 
 #=========   URL OPTIONS   =========
 
-# Main URL (GitHub)
-MAIN_URL="https://github.com"
-
-# Wallpaper Database URL (db.json.zip contains file list with hash, size, tags)
-DB_URL="https://raw.githubusercontent.com/Ranny-Snice/Ranny-Snice-Wallpapers/db/db.json.zip"
+#Main URL
+MAIN_URL="https://treeslins.com"
 
 #=========   USER OPTIONS   =========
 
-# Choose if you'd like to manage the Wallpapers that appear on your MiSTer Menu
-# Set to "False" if you'd like your MiSTer to randomly select a Wallpaper from everything downloaded
-# Set to "True" if you'd like to manually manage/copy from /wallpapers/subfolders to /wallpapers 
+#Choose if you'd like to manage the Wallpapers that appear on your MiSTer Menu
+#Set to "False" if you'd like your MiSTer to randomly select a Wallpaper from everything downloaded
+#Set to "True" if you'd like top manually manage/copy from /wallpapers/subfolders to /wallpapers 
 SELF_MANAGED="False"
 
-# Case Sensitive Keywords to Skip Downloading Wallpapers that you do not want
-# NOTE: The list is separated by space so only use part of the word if it's more than one word
-# EXAMPLE: BLACKLIST="Powerpuff Bowsette Vampire"
+#Case Sensitive Keywords to Skip Downloading Wallpapers that you do not want
+#NOTE: The list is separated by space so only use part of the word if it's more than one word
+#EXAMPLE: BLACKLIST="Powerpuff Bowsette Vampire"
 BLACKLIST=""
-
-#========= DO NOT CHANGE BELOW =========
-
-# Record script execution timestamp
-TIMESTAMP=`date "+%m-%d-%Y @ %I:%M%P"`
-# Allow insecure SSL connection (fix certificate issues)
-ALLOW_INSECURE_SSL="true"
-# curl retry parameters (15s connect timeout, 120s max time, 3 retries, 5s delay)
-CURL_RETRY="--connect-timeout 15 --max-time 120 --retry 3 --retry-delay 5"
-
-# Get script path (supports pipe execution: curl ... | bash - )
-ORIGINAL_SCRIPT_PATH="$0"
-if [ "$ORIGINAL_SCRIPT_PATH" == "bash" ]
-then
-    # If called via pipe, get parent process name from process list
-	ORIGINAL_SCRIPT_PATH=$(ps | grep "^ *$PPID " | grep -o "[^ ]*$")
-fi
-
-# Load INI config file with same name (user custom configuration)
-INI_PATH=${ORIGINAL_SCRIPT_PATH%.*}.ini
-if [ -f $INI_PATH ]
-then
-    # Read INI file and execute, tr -d '\r' removes Windows line endings
-	eval "$(cat $INI_PATH | tr -d '\r')"
-fi
-
-# Compatibility: migrate old path to new path
-if [ -d "${BASE_PATH}/${OLD_SCRIPTS_PATH}" ] && [ ! -d "${BASE_PATH}/${SCRIPTS_PATH}" ]
-then
-	mv "${BASE_PATH}/${OLD_SCRIPTS_PATH}" "${BASE_PATH}/${SCRIPTS_PATH}"
-	echo "Moved"
-	echo "${BASE_PATH}/${OLD_SCRIPTS_PATH}"
-	echo "to"
-	echo "${BASE_PATH}/${SCRIPTS_PATH}"
-	echo "Please relaunch the script."
-	exit 3
-fi
-
-# SSL certificate verification handling
-SSL_SECURITY_OPTION=""
-curl $CURL_RETRY -q $MAIN_URL &>/dev/null
-case $? in
-	0)
-		;;  # Connection successful, no action needed
-	60)
-        # SSL certificate verification failed
-		if [ "$ALLOW_INSECURE_SSL" == "true" ]
-		then
-			SSL_SECURITY_OPTION="--insecure"  # Allow insecure connection
-		else
-			echo "CA certificates need to be fixed for using SSL certificate verification."
-			echo "Please fix them i.e. using security_fixes.sh"
-			exit 2
-		fi
-		;;
-	*)
-		echo "No Internet connection"
-		exit 1
-		;;
-esac
 
 #========= FUNCTIONS =========
 
-# Treeslins Updater Banner Function
-Treeslins_Banner(){
-echo
-echo " ------------------------------------------------------------"
-echo "|                   MiSTer CRT Wallpapers v2.0               |"
-echo "|                   powered by Treeslins                      |"
-echo " ------------------------------------------------------------"
-sleep 3  # Pause 3 seconds for visibility
+# Terminal width and padding helpers
+INNER_W=60
+TERM_W=$(tput cols 2>/dev/null || echo 80)
+PAD=$(( (TERM_W - INNER_W) / 2 ))
+[ $PAD -lt 0 ] && PAD=0
+SP=$(printf "%${PAD}s" "")
+
+# Print a separator line (centered)
+print_line(){
+	echo "${SP}$(printf '%0.s=' $(seq 1 $INNER_W))"
 }
 
-# Download Wallpapers Function
-Download_Wallpapers(){
+# Print centered text (no side borders)
+print_center(){
+	local text="$1"
+	local len=${#text}
+	local lp=$(( (INNER_W - len) / 2 ))
+	printf "%s%*s%s\n" "$SP" $lp "" "$text"
+}
+
+#Treeslins Updater Banner Function
+Treeslins_Banner(){
+echo
+
+# Banner uses bordered box
+bcnt(){
+	local text="$1"
+	local len=${#text}
+	local lp=$(( (INNER_W - 2 - len) / 2 ))
+	local rp=$(( INNER_W - 2 - len - lp ))
+	printf "%s|%*s%s%*s|\n" "$SP" $lp "" "$text" $rp ""
+}
+
+echo "${SP}$(printf '%0.s-' $(seq 1 $INNER_W))"
+bcnt "MiSTer CRT Wallpapers v1.0"
+bcnt "powered by Treeslins"
+echo "${SP}$(printf '%0.s-' $(seq 1 $INNER_W))"
+
+sleep 3
+
+}
+
+#Setup Directories and Menu Files
+Setup_Wallpapers(){
 
     echo
-    echo "================================================================"
-    echo "                 Downloading MiSTer CRT Wallpapers              "
-    echo "================================================================"
+    print_line
+    print_center "Setting Up MiSTer CRT Wallpapers"
+    print_line
 	sleep 1
 
-    # Create wallpaper storage directory
+	#Make Directories if needed
 	mkdir -p "/media/fat/wallpapers"
-    cd "/media/fat/wallpapers"
 
-    # If old menu.jpg/png exists, move to wallpapers directory and rename
+	#Rename and move menu.jpg/png in root
 	if [ -f /media/fat/menu.jpg ]; then
 		mv -f "/media/fat/menu.jpg" "/media/fat/wallpapers/menu2.jpg" 2>/dev/null
 	fi
+
 	if [ -f /media/fat/menu.png ]; then
 		mv -f "/media/fat/menu.png" "/media/fat/wallpapers/menu2.png" 2>/dev/null
 	fi
 
-    # Create temporary directory
-    TMP_DIR=$(mktemp -d)
-    
-    # Step 1: Download db.json.zip
-    echo
-    echo "Downloading wallpaper database..."
-    echo
-    curl ${CURL_RETRY} ${SSL_SECURITY_OPTION} -L -o "${TMP_DIR}/db.json.zip" "$DB_URL"
-    
-    if [ ! -f "${TMP_DIR}/db.json.zip" ] || [ ! -s "${TMP_DIR}/db.json.zip" ]; then
-        echo "Failed to download database!"
-        rm -rf "$TMP_DIR"
-        exit 1
-    fi
-    
-    # Step 2: Extract db.json from zip
-    echo "Extracting database..."
-    unzip -q "${TMP_DIR}/db.json.zip" -d "$TMP_DIR" 2>/dev/null
-    
-    if [ ! -f "${TMP_DIR}/db.json" ]; then
-        echo "Error: db.json not found in zip archive!"
-        rm -rf "$TMP_DIR"
-        exit 1
-    fi
-    
-    # Step 3: Parse base_files_url from db.json
-    # JSON format: {"base_files_url": "https://raw.githubusercontent.com/.../<commit_hash>/", ...}
-    # This URL is the base for all file downloads
-    BASE_FILES_URL=$(grep -o '"base_files_url"[[:space:]]*:[[:space:]]*"[^"]*"' "${TMP_DIR}/db.json" | \
-        sed 's/.*"base_files_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-    
-    if [ -z "$BASE_FILES_URL" ]; then
-        echo "Error: Could not find base_files_url in db.json!"
-        rm -rf "$TMP_DIR"
-        exit 1
-    fi
-    
-    echo "Database base URL: $BASE_FILES_URL"
-    
-    # Step 4: Extract file paths from "files" object keys
-    # JSON format: {"files": {"Wallpapers/file.jpg": {"hash":"...", "size":...}}, ...}
-    # db.json is typically a single line, so we use sed to split entries first
-    # Then grep for "Wallpapers/" keys with trailing colon (indicates JSON key)
-    # This approach is busybox-compatible (no Perl regex -P needed)
-    
-    # Split single-line JSON into multiple lines at each file entry boundary
-    sed 's/}, "/}\n"/g' "${TMP_DIR}/db.json" | \
-    grep -o '"Wallpapers/[^"]*":' | \
-    tr -d '"' | tr -d ':' > "${TMP_DIR}/filelist.txt"
-    
-    if [ ! -s "${TMP_DIR}/filelist.txt" ]; then
-        echo "Error: Could not extract file list from db.json!"
-        rm -rf "$TMP_DIR"
-        exit 1
-    fi
-    
-    # Step 5: Blacklist filtering
-    if [ "$BLACKLIST" != "" ]; then
-        echo "Applying blacklist filter..."
-        BLACKLIST_ARRAY=($BLACKLIST)
-        for keyword in "${BLACKLIST_ARRAY[@]}"; do
-            grep -v "$keyword" "${TMP_DIR}/filelist.txt" > "${TMP_DIR}/filelist_filtered.txt"
-            mv "${TMP_DIR}/filelist_filtered.txt" "${TMP_DIR}/filelist.txt"
-        done
-    fi
-    
-    # Count total files
-    TOTAL_FILES=$(wc -l < "${TMP_DIR}/filelist.txt")
-    echo "Found $TOTAL_FILES wallpaper files"
-    echo
-    
-    # Step 6: Download wallpaper files
-    echo "Starting wallpaper download..."
-    echo
-    
-    # Log script run
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - === Starting wallpaper download ===" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
-    
-    CURRENT=0
-    SUCCESS=0
-    FAILED=0
-    SKIPPED=0
-    while IFS= read -r filepath; do
-        CURRENT=$((CURRENT + 1))
-        
-        # Extract filename from path (remove "Wallpapers/" prefix)
-        filename=$(basename "$filepath")
-        
-        # Build download URL: base_files_url + "/" + filepath
-        FILE_URL="${BASE_FILES_URL}/${filepath}"
-        
-        # Check if file already exists and is complete (simple check: file size > 0)
-        if [ -f "$filename" ] && [ -s "$filename" ]; then
-            echo "[$CURRENT/$TOTAL_FILES] Skipped: $filename"
-            SKIPPED=$((SKIPPED + 1))
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipped (exists): $filename" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
-            continue
-        fi
-        
-        echo -n "[$CURRENT/$TOTAL_FILES] Downloading: $filename ... "
-        
-        # Download file
-        HTTP_CODE=$(curl ${CURL_RETRY} ${SSL_SECURITY_OPTION} -L -o "$filename" -w "%{http_code}" "$FILE_URL" 2>/dev/null)
-        
-        if [ "$HTTP_CODE" == "200" ] && [ -f "$filename" ] && [ -s "$filename" ]; then
-            echo "OK"
-            SUCCESS=$((SUCCESS + 1))
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $filename" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
-        else
-            echo "FAILED (HTTP $HTTP_CODE)"
-            FAILED=$((FAILED + 1))
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - FAILED: $filename (HTTP $HTTP_CODE)" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
-            rm -f "$filename" 2>/dev/null
-        fi
-        
-    done < "${TMP_DIR}/filelist.txt"
-    
-    # Clean up temporary files
-    rm -rf "$TMP_DIR"
-    
-    # Summary
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - === Download complete: Total=$TOTAL_FILES Downloaded=$SUCCESS Skipped=$SKIPPED Failed=$FAILED ===" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
-    echo
-    echo "================================================================"
-    echo "  Download complete!"
-    echo "  Total: $TOTAL_FILES | Downloaded: $SUCCESS | Skipped: $SKIPPED | Failed: $FAILED"
-    echo "================================================================"
-    
-    if [ "$FAILED" -gt 0 ]; then
-        echo "Warning: $FAILED files failed to download. Check your internet connection and try again."
-    fi
-    
 	sleep 1
-    clear 		
+    clear
 }
 
-# Footer Function
+#Footer Function
 Footer(){
 clear
 echo
-echo "================================================================"
-echo "                MiSTer CRT Wallpapers are up to date!           "
-echo "================================================================"
+print_line
+print_center "MiSTer CRT Wallpapers are up to date!"
+print_line
 echo
+
 }
 
 #========= MAIN CODE =========
 
-# Print banner
+#Treeslins Updater Banner
 Treeslins_Banner
 
-# Create logs directory
-LOGS_PATH="/media/fat/Scripts/.Treeslins/Logs"
-mkdir -p "$LOGS_PATH"
-
-# Download wallpapers
-Download_Wallpapers
+#Setup Wallpapers
+Setup_Wallpapers
 
 echo
 
-# Display footer
+#Display Footer
 Footer
 echo "Wallpapers designed and provided by: Ranny Snice"
 echo
-echo "Wallpaper collection location: /media/fat/wallpapers"
-echo
-echo "Script modified by: trees"
-echo
+echo "Wallpaper Collection located here: /media/fat/wallpapers"
