@@ -206,6 +206,9 @@ Download_Wallpapers(){
     echo "Starting wallpaper download..."
     echo
     
+    # Log script run
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - === Starting wallpaper download ===" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
+    
     CURRENT=0
     SUCCESS=0
     FAILED=0
@@ -223,6 +226,7 @@ Download_Wallpapers(){
         if [ -f "$filename" ] && [ -s "$filename" ]; then
             echo "[$CURRENT/$TOTAL_FILES] Skipped: $filename"
             SKIPPED=$((SKIPPED + 1))
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipped (exists): $filename" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
             continue
         fi
         
@@ -238,6 +242,7 @@ Download_Wallpapers(){
         else
             echo "FAILED (HTTP $HTTP_CODE)"
             FAILED=$((FAILED + 1))
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - FAILED: $filename (HTTP $HTTP_CODE)" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
             rm -f "$filename" 2>/dev/null
         fi
         
@@ -247,6 +252,7 @@ Download_Wallpapers(){
     rm -rf "$TMP_DIR"
     
     # Summary
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - === Download complete: Total=$TOTAL_FILES Downloaded=$SUCCESS Skipped=$SKIPPED Failed=$FAILED ===" >> "$LOGS_PATH/Wallpaper_Downloads.txt"
     echo
     echo "================================================================"
     echo "  Download complete!"
